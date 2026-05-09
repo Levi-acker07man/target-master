@@ -12,21 +12,40 @@ function App() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const scrollRef = useRef(null);
 
-  // Live IST Clock Updater
+  // Live IST Clock
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Generate 30 days of calendar dates (7 days past, 23 days future)
+  // Calendar Timeline generation
   const calendarDates = Array.from({ length: 30 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() - 7 + i);
     return d;
   });
 
-  // Filter tasks to ONLY show tasks for the currently selected date
+  // ================= DATA FILTERING LOGIC =================
+  const todayString = new Date().toDateString();
+  
+  // 1. Sticky Wall View Tasks
   const visibleTasks = tasks.filter(t => t.date === selectedDate.toDateString());
+  
+  // 2. Today Tab Tasks
+  const todayTasks = tasks.filter(t => t.date === todayString);
+  
+  // 3. Upcoming Tab Tasks (Tasks with dates strictly greater than today)
+  const upcomingTasks = tasks.filter(t => new Date(t.date) > new Date(todayString));
+
+  // Group Upcoming Tasks by Date so we can render them as headers
+  const upcomingTasksByDate = upcomingTasks.reduce((acc, task) => {
+    if (!acc[task.date]) acc[task.date] = [];
+    acc[task.date].push(task);
+    return acc;
+  }, {});
+  
+  // Sort those upcoming dates chronologically
+  const sortedUpcomingDates = Object.keys(upcomingTasksByDate).sort((a, b) => new Date(a) - new Date(b));
 
   const addTask = () => {
     if (!input.trim()) return;
@@ -34,7 +53,7 @@ function App() {
       id: Date.now(), 
       text: input, 
       completed: false, 
-      date: selectedDate.toDateString() // Bind task to selected date
+      date: selectedDate.toDateString() // Attached to whatever date is clicked on the timeline!
     };
     setTasks([...tasks, newTask]);
     setInput("");
@@ -56,7 +75,7 @@ function App() {
         <span className="text-lg flex items-center justify-center w-5">{icon}</span>
         <span>{label}</span>
       </div>
-      {count !== null && (
+      {count > 0 && (
         <span className="bg-stone-200 text-stone-600 px-2 py-0.5 rounded text-xs font-bold">
           {count}
         </span>
@@ -64,7 +83,7 @@ function App() {
     </li>
   );
 
-  // Formatters for Indian Locale
+  // Formatting
   const timeString = currentTime.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute:'2-digit', second: '2-digit' });
   const indianDateString = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', calendar: 'indian', month: 'long', day: 'numeric', year: 'numeric' }).format(currentTime);
 
@@ -72,7 +91,7 @@ function App() {
     <div className="flex h-screen bg-[#c8d1c9] p-4 lg:p-8 font-sans text-[#333333] antialiased selection:bg-rose-200">
       <div className="flex w-full max-w-7xl mx-auto bg-[#fdfcfb] rounded-[2rem] shadow-2xl overflow-hidden border border-white/50">
 
-        {/* ================= LEFT SIDEBAR (Unchanged) ================= */}
+        {/* ================= LEFT SIDEBAR ================= */}
         <div className="w-72 bg-[#fcfbf9] p-6 hidden md:flex flex-col border-r border-stone-100 overflow-y-auto">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-xl font-bold tracking-tight">Menu</h2>
@@ -87,8 +106,9 @@ function App() {
             <div>
               <h3 className="text-[10px] font-bold text-stone-400 mb-2 tracking-widest uppercase px-3">Tasks</h3>
               <ul className="space-y-1 text-sm">
-                {renderSidebarItem("»", "Upcoming", tasks.filter(t => new Date(t.date) > new Date()).length, activeTab === "Upcoming")}
-                {renderSidebarItem("≡", "Today", tasks.filter(t => t.date === new Date().toDateString()).length, activeTab === "Today")}
+                {/* Dynamic Counts attached to sidebar items! */}
+                {renderSidebarItem("»", "Upcoming", upcomingTasks.length, activeTab === "Upcoming")}
+                {renderSidebarItem("≡", "Today", todayTasks.length, activeTab === "Today")}
                 {renderSidebarItem("📝", "Sticky Wall", null, activeTab === "Sticky Wall")}
               </ul>
             </div>
@@ -106,7 +126,6 @@ function App() {
         {/* ================= MAIN CONTENT ================= */}
         <div className="flex-1 p-8 lg:p-12 flex flex-col bg-[#faf9f6] overflow-hidden">
           
-          {/* Header with Live IST Time & Indian Calendar */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
             <div>
               <h1 className="text-4xl font-bold tracking-tight text-[#222222]">{activeTab}</h1>
@@ -121,134 +140,124 @@ function App() {
             </div>
           </div>
 
+          {/* ================= ROUTING LOGIC ================= */}
+          
+          {/* VIEW 1: STICKY WALL */}
           {activeTab === "Sticky Wall" ? (
             <div className="flex flex-col h-full overflow-hidden">
-              
-              {/* ================= HORIZONTAL CALENDAR STRIP ================= */}
-              <div 
-                ref={scrollRef}
-                className="flex overflow-x-auto gap-3 pb-4 mb-6 pt-2"
-                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }} // Hides scrollbar but allows scroll
-              >
+              <div ref={scrollRef} className="flex overflow-x-auto gap-3 pb-4 mb-6 pt-2" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                 {calendarDates.map((d, i) => {
                   const isSelected = d.toDateString() === selectedDate.toDateString();
                   const isToday = d.toDateString() === new Date().toDateString();
-                  
                   return (
                     <motion.div 
-                      key={i}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setSelectedDate(d)}
+                      key={i} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setSelectedDate(d)}
                       className={`flex flex-col items-center justify-center min-w-[4.5rem] p-3 rounded-2xl cursor-pointer transition-all border ${
-                        isSelected 
-                          ? "bg-[#222222] text-white border-[#222222] shadow-md" 
-                          : isToday 
-                            ? "bg-[#dcf0f5] text-stone-800 border-[#b3e0dc]" 
-                            : "bg-white text-stone-500 border-stone-100 hover:border-stone-300"
+                        isSelected ? "bg-[#222222] text-white border-[#222222] shadow-md" : isToday ? "bg-[#dcf0f5] text-stone-800 border-[#b3e0dc]" : "bg-white text-stone-500 border-stone-100"
                       }`}
                     >
-                      <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">
-                        {d.toLocaleDateString('en-IN', { weekday: 'short' })}
-                      </span>
-                      <span className={`text-xl font-black mt-1 ${isSelected ? 'text-white' : 'text-stone-800'}`}>
-                        {d.getDate()}
-                      </span>
-                      <span className="text-[10px] font-medium opacity-80 mt-0.5">
-                        {d.toLocaleDateString('en-IN', { month: 'short' })}
-                      </span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">{d.toLocaleDateString('en-IN', { weekday: 'short' })}</span>
+                      <span className={`text-xl font-black mt-1 ${isSelected ? 'text-white' : 'text-stone-800'}`}>{d.getDate()}</span>
+                      <span className="text-[10px] font-medium opacity-80 mt-0.5">{d.toLocaleDateString('en-IN', { month: 'short' })}</span>
                     </motion.div>
                   )
                 })}
               </div>
 
-              {/* ================= STICKY NOTES GRID ================= */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pb-10 pr-2">
-                
-                {/* Note 1: Input (Yellow) */}
-                <div className="bg-[#fff4c2] p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow h-fit">
-                  <h3 className="text-lg font-bold mb-4 text-stone-800 flex justify-between">
-                    Add Target
-                    <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded-lg">
-                      {selectedDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}
-                    </span>
-                  </h3>
+                <div className="bg-[#fff4c2] p-6 rounded-2xl shadow-sm h-fit">
+                  <h3 className="text-lg font-bold mb-4 text-stone-800">Add Target</h3>
                   <div className="flex flex-col gap-3">
                     <input 
-                      className="bg-white/50 p-3 rounded-xl border-none focus:ring-2 focus:ring-yellow-400/50 outline-none text-stone-700 placeholder-stone-500 text-sm font-medium"
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && addTask()}
-                      placeholder="What needs to be done?"
+                      className="bg-white/50 p-3 rounded-xl border-none focus:ring-2 focus:ring-yellow-400/50 outline-none text-stone-700 text-sm font-medium"
+                      value={input} onChange={(e) => setInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addTask()} placeholder="What needs to be done?"
                     />
-                    <button onClick={addTask} className="bg-[#222222] text-white py-3 rounded-xl font-bold hover:bg-stone-700 transition-colors text-sm shadow-sm">
-                      Pin to Timeline
-                    </button>
+                    <button onClick={addTask} className="bg-[#222222] text-white py-3 rounded-xl font-bold hover:bg-stone-700 transition-colors text-sm shadow-sm">Pin to Timeline</button>
                   </div>
                 </div>
 
-                {/* Note 2: Tasks (Blue) */}
-                <div className="bg-[#dcf0f5] p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow flex flex-col min-h-[350px]">
-                  <h3 className="text-lg font-bold mb-4 text-stone-800">
-                    Targets for {selectedDate.toDateString() === new Date().toDateString() ? "Today" : selectedDate.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' })}
-                  </h3>
+                <div className="bg-[#dcf0f5] p-6 rounded-2xl shadow-sm flex flex-col min-h-[350px]">
+                  <h3 className="text-lg font-bold mb-4 text-stone-800">Targets for {selectedDate.toDateString() === new Date().toDateString() ? "Today" : selectedDate.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' })}</h3>
                   <div className="flex-1 space-y-3 overflow-y-auto">
                     <AnimatePresence>
                       {visibleTasks.map(t => (
-                        <motion.div 
-                          key={t.id}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, scale: 0.9 }}
-                          className="flex items-start gap-3 group bg-white/40 p-3 rounded-xl border border-white/50"
-                        >
-                          <input 
-                            type="checkbox" 
-                            checked={t.completed}
-                            onChange={() => toggleTask(t.id)}
-                            className="mt-1 w-4 h-4 rounded border-stone-400 text-stone-800 focus:ring-stone-800 cursor-pointer accent-[#222222]" 
-                          />
-                          <span className={`text-sm leading-relaxed transition-all ${t.completed ? "line-through text-stone-400" : "text-stone-700 font-medium"}`}>
-                            {t.text}
-                          </span>
+                        <motion.div key={t.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="flex items-start gap-3 bg-white/40 p-3 rounded-xl border border-white/50">
+                          <input type="checkbox" checked={t.completed} onChange={() => toggleTask(t.id)} className="mt-1 w-4 h-4 rounded border-stone-400 cursor-pointer accent-[#222222]" />
+                          <span className={`text-sm leading-relaxed transition-all ${t.completed ? "line-through text-stone-400" : "text-stone-700 font-medium"}`}>{t.text}</span>
                         </motion.div>
                       ))}
-                      {visibleTasks.length === 0 && (
-                        <div className="text-stone-500 text-sm italic mt-4 text-center">
-                          No targets pinned for this date.
-                        </div>
-                      )}
+                      {visibleTasks.length === 0 && <div className="text-stone-500 text-sm italic mt-4 text-center">No targets pinned for this date.</div>}
                     </AnimatePresence>
                   </div>
                 </div>
 
-                {/* Note 3: Stats (Pink) */}
-                <div className="bg-[#fce5e8] p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow flex flex-col h-fit">
+                <div className="bg-[#fce5e8] p-6 rounded-2xl shadow-sm flex flex-col h-fit">
                   <h3 className="text-lg font-bold mb-2 text-stone-800">Daily Efficiency</h3>
-                  <p className="text-stone-600 text-xs mb-8 leading-relaxed">
-                    Completion rate for {selectedDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}.
-                  </p>
                   <div className="flex-1 flex flex-col items-center justify-center py-4">
-                    <motion.div 
-                      key={visibleTasks.filter(t => t.completed).length}
-                      initial={{ scale: 0.9 }}
-                      animate={{ scale: 1 }}
-                      className="text-7xl font-black text-[#222222] mb-4"
-                    >
+                    <motion.div key={visibleTasks.filter(t => t.completed).length} initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="text-7xl font-black text-[#222222] mb-4">
                       {visibleTasks.length > 0 ? Math.round((visibleTasks.filter(t => t.completed).length / visibleTasks.length) * 100) : 0}%
                     </motion.div>
-                    <div className="w-full bg-white/60 h-2.5 rounded-full overflow-hidden mt-4">
-                       <motion.div 
-                          className="bg-rose-400 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${visibleTasks.length > 0 ? (visibleTasks.filter(t => t.completed).length / visibleTasks.length) * 100 : 0}%` }}
-                       />
-                    </div>
                   </div>
                 </div>
-
               </div>
             </div>
-          ) : (
+          ) 
+
+          /* VIEW 2: TODAY TAB */
+          : activeTab === "Today" ? (
+            <div className="max-w-2xl w-full bg-[#dcf0f5] p-8 rounded-3xl shadow-sm border border-white flex flex-col h-[70vh]">
+               <h2 className="text-2xl font-bold mb-6 text-stone-800 flex justify-between items-center">
+                 Focus for Today
+                 <span className="text-sm font-medium bg-white/60 text-stone-600 px-3 py-1 rounded-lg shadow-sm">
+                   {todayTasks.length} Targets
+                 </span>
+               </h2>
+               <div className="flex-1 overflow-y-auto space-y-3 pr-2">
+                 <AnimatePresence>
+                    {todayTasks.length === 0 ? (
+                      <div className="h-full flex items-center justify-center text-stone-500 italic">No targets set for today. Go to the Sticky Wall to add some!</div>
+                    ) : (
+                      todayTasks.map(t => (
+                        <motion.div key={t.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex items-start gap-4 bg-white/60 p-4 rounded-xl border border-white shadow-sm">
+                          <input type="checkbox" checked={t.completed} onChange={() => toggleTask(t.id)} className="mt-1 w-5 h-5 rounded border-stone-400 cursor-pointer accent-[#222222]" />
+                          <span className={`text-lg transition-all ${t.completed ? "line-through text-stone-400" : "text-stone-800 font-medium"}`}>{t.text}</span>
+                        </motion.div>
+                      ))
+                    )}
+                 </AnimatePresence>
+               </div>
+            </div>
+          )
+
+          /* VIEW 3: UPCOMING TAB */
+          : activeTab === "Upcoming" ? (
+            <div className="max-w-3xl w-full overflow-y-auto pr-4 pb-10 space-y-8">
+              {sortedUpcomingDates.length === 0 ? (
+                <div className="bg-white p-10 rounded-3xl border border-stone-100 text-center text-stone-500 italic">
+                  No upcoming targets on the calendar.
+                </div>
+              ) : (
+                sortedUpcomingDates.map(dateKey => (
+                  <div key={dateKey} className="bg-[#fff4c2] p-6 rounded-3xl shadow-sm border border-white">
+                    <h3 className="text-xl font-bold mb-4 text-stone-800 border-b border-yellow-200/50 pb-2">
+                      {new Date(dateKey).toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' })}
+                    </h3>
+                    <div className="space-y-3">
+                      {upcomingTasksByDate[dateKey].map(t => (
+                        <div key={t.id} className="flex items-start gap-3 bg-white/50 p-3 rounded-xl border border-white/50">
+                          <input type="checkbox" checked={t.completed} onChange={() => toggleTask(t.id)} className="mt-1 w-4 h-4 rounded border-stone-400 cursor-pointer accent-[#222222]" />
+                          <span className={`text-base transition-all ${t.completed ? "line-through text-stone-400" : "text-stone-700 font-medium"}`}>{t.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )
+
+          /* FALLBACK FOR UNFINISHED TABS */
+          : (
             <div className="flex flex-1 items-center justify-center text-stone-400 border-2 border-dashed border-stone-200 rounded-2xl">
               <p>The {activeTab} view is currently under construction...</p>
             </div>
