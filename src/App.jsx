@@ -6,14 +6,13 @@ function App() {
   const [tasks, setTasks] = useState([]);
   const [input, setInput] = useState("");
   const [activeTab, setActiveTab] = useState("Target"); 
-  const [globalNotes, setGlobalNotes] = useState(""); // State for the new Sticky Notes tab
+  const [globalNotes, setGlobalNotes] = useState(""); 
   
   // 2. Calendar & Time State
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
   const scrollRef = useRef(null);
 
-  // Live IST Clock
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -25,21 +24,28 @@ function App() {
     return d;
   });
 
-  // ================= DATA FILTERING =================
+  // ================= DATA FILTERING & TIME LOGIC =================
   const todayString = new Date().toDateString();
+  
+  // Helper to strictly identify future dates
+  const isFutureDate = (dateStr) => new Date(dateStr) > new Date(todayString);
   
   // Tasks by View
   const visibleTasks = tasks.filter(t => t.date === selectedDate.toDateString());
   const todayTasks = tasks.filter(t => t.date === todayString);
-  const upcomingTasks = tasks.filter(t => new Date(t.date) > new Date(todayString));
+  const upcomingTasks = tasks.filter(t => isFutureDate(t.date));
 
   // Today's Efficiency Score
   const todayCompleted = todayTasks.filter(t => t.completed).length;
   const todayTotal = todayTasks.length;
   const todayEfficiency = todayTotal > 0 ? Math.round((todayCompleted / todayTotal) * 100) : 0;
 
-  // --- HISTORICAL CONSISTENCY CALCULATIONS ---
-  const tasksByDate = tasks.reduce((acc, task) => {
+  // --- HISTORICAL CONSISTENCY CALCULATIONS (FIXED) ---
+  // Step 1: Strip out all future tasks so they don't ruin the analytics
+  const pastAndPresentTasks = tasks.filter(t => !isFutureDate(t.date));
+
+  // Step 2: Group only the eligible tasks by date
+  const tasksByDate = pastAndPresentTasks.reduce((acc, task) => {
     if (!acc[task.date]) acc[task.date] = { total: 0, completed: 0 };
     acc[task.date].total += 1;
     if (task.completed) acc[task.date].completed += 1;
@@ -76,10 +82,6 @@ function App() {
   const toggleTask = (id) => setTasks(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
   const deleteTask = (id) => setTasks(tasks.filter(t => t.id !== id));
 
-  // Helper to determine if a task is in the future (disables checkbox)
-  const isFutureDate = (dateStr) => new Date(dateStr) > new Date(todayString);
-
-  // Helper for Sidebar
   const renderSidebarItem = (icon, label, count, isActive) => (
     <li 
       onClick={() => setActiveTab(label)}
@@ -154,9 +156,7 @@ function App() {
             </div>
           </div>
 
-          {/* ================= ROUTING LOGIC ================= */}
-          
-          {/* VIEW 1: TARGET (Formerly Sticky Wall) */}
+          {/* VIEW 1: TARGET */}
           {activeTab === "Target" ? (
              <div className="flex flex-col h-full overflow-hidden">
              <div ref={scrollRef} className="flex overflow-x-auto gap-3 pb-4 mb-6 pt-2 shrink-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
@@ -201,14 +201,11 @@ function App() {
                        return (
                          <motion.div key={t.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="flex items-start gap-3 bg-white/40 p-3 rounded-xl border border-white/50 group">
                            {isFuture ? (
-                             // NO CHECKBOX for future tasks, just a delete button!
                              <button onClick={() => deleteTask(t.id)} className="mt-0.5 text-rose-400 hover:text-rose-600 font-bold px-1 transition-colors">✕</button>
                            ) : (
                              <input type="checkbox" checked={t.completed} onChange={() => toggleTask(t.id)} className="mt-1 w-4 h-4 rounded border-stone-400 cursor-pointer accent-[#222222]" />
                            )}
                            <span className={`text-sm leading-relaxed transition-all flex-1 ${t.completed && !isFuture ? "line-through text-stone-400" : "text-stone-700 font-medium"}`}>{t.text}</span>
-                           
-                           {/* Show delete icon on hover for today/past tasks */}
                            {!isFuture && (
                              <button onClick={() => deleteTask(t.id)} className="text-stone-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
                            )}
@@ -223,7 +220,7 @@ function App() {
            </div>
           ) 
 
-          /* VIEW 2: TODAY TAB (Only Live Progress and Task list) */
+          /* VIEW 2: TODAY TAB */
           : activeTab === "Today" ? (
             <div className="max-w-2xl w-full bg-[#dcf0f5] p-8 rounded-3xl shadow-sm border border-white flex flex-col h-[75vh]">
                  <div className="mb-8 bg-white/40 p-5 rounded-2xl border border-white">
@@ -274,7 +271,6 @@ function App() {
                     <div className="space-y-3">
                       {upcomingTasksByDate[dateKey].map(t => (
                         <div key={t.id} className="flex items-start gap-3 bg-white/50 p-3 rounded-xl border border-white/50 group">
-                          {/* Upcoming tasks ONLY have a delete button, NO CHECKBOX */}
                           <button onClick={() => deleteTask(t.id)} className="mt-1 text-rose-400 hover:text-rose-600 font-bold px-1">✕</button>
                           <span className="text-base text-stone-700 font-medium flex-1">{t.text}</span>
                         </div>
@@ -286,15 +282,15 @@ function App() {
             </div>
           )
 
-          /* VIEW 4: PROGRESS (Consistency Matrix) */
+          /* VIEW 4: PROGRESS TAB */
           : activeTab === "Progress" ? (
             <div className="max-w-2xl w-full bg-white p-10 rounded-3xl shadow-sm border border-stone-100 flex flex-col h-[75vh] overflow-y-auto">
                <h2 className="text-3xl font-bold mb-2 text-stone-800">Consistency Matrix</h2>
                <p className="text-stone-500 text-base mb-10 border-b border-stone-100 pb-4">Historical distribution of your daily task completion rates.</p>
 
                {totalDaysWithTasks === 0 ? (
-                  <div className="flex-1 flex items-center justify-center text-stone-400 italic bg-stone-50 rounded-2xl border-2 border-dashed border-stone-200">
-                    Not enough historical data. Complete tasks to build your chart.
+                  <div className="flex-1 flex items-center justify-center text-stone-400 italic bg-stone-50 rounded-2xl border-2 border-dashed border-stone-200 text-center px-4">
+                    Data for the Consistency Matrix will generate once you complete tasks today or log historical tasks. Future tasks are ignored until their day arrives.
                   </div>
                ) : (
                   <div className="space-y-8 mt-4">
@@ -343,7 +339,7 @@ function App() {
             </div>
           )
 
-          /* VIEW 5: STICKY NOTES (Scratchpad) */
+          /* VIEW 5: STICKY NOTES */
           : activeTab === "Sticky Notes" ? (
             <div className="max-w-4xl w-full bg-[#fce5e8] p-10 rounded-3xl shadow-sm border border-white flex flex-col h-[75vh]">
               <h2 className="text-2xl font-bold mb-6 text-stone-800">Global Scratchpad</h2>
