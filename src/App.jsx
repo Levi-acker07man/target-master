@@ -9,10 +9,13 @@ function App() {
   const [tasks, setTasks] = useState([]);
   const [input, setInput] = useState("");
   const [activeTab, setActiveTab] = useState("Target"); 
-  const [globalNotes, setGlobalNotes] = useState(""); 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Sticky Notes State
+  const [notes, setNotes] = useState([]);
+  const rainbowColors = ['bg-red-200', 'bg-orange-200', 'bg-yellow-200', 'bg-green-200', 'bg-blue-200', 'bg-indigo-200', 'bg-violet-200'];
 
   // Flashcard State
   const [decks, setDecks] = useState([]);
@@ -66,6 +69,18 @@ function App() {
       text: input, completed: false, date: selectedDate.toDateString(), uid: user.uid, createdAt: serverTimestamp()
     });
     setInput("");
+  };
+
+  // --- STICKY NOTE ACTIONS ---
+  const addNote = () => {
+    const randomColor = rainbowColors[Math.floor(Math.random() * rainbowColors.length)];
+    setNotes([...notes, { id: Date.now(), text: "", color: randomColor }]);
+  };
+  const updateNote = (id, text) => {
+    setNotes(notes.map(n => n.id === id ? { ...n, text } : n));
+  };
+  const deleteNote = (id) => {
+    setNotes(notes.filter(n => n.id !== id));
   };
 
   // --- FLASHCARD ACTIONS ---
@@ -144,6 +159,7 @@ function App() {
   });
 
   return (
+    // FULL SCREEN CONTAINER
     <div className="flex h-[100dvh] w-screen bg-[#faf9f6] font-sans text-[#333333] antialiased overflow-hidden relative">
 
       {/* MOBILE MENU OVERLAY */}
@@ -160,29 +176,47 @@ function App() {
       </AnimatePresence>
 
       {/* SIDEBAR */}
-      <div className={`fixed inset-y-0 left-0 z-50 w-72 lg:w-80 bg-[#fcfbf9] p-6 lg:p-8 flex flex-col border-r border-stone-200 transition-transform md:static md:translate-x-0 ${isMobileMenuOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"}`}>
-        <div className="flex justify-between items-center mb-10">
-          <h2 className="text-2xl font-bold">Target Master</h2>
+      <div className={`fixed inset-y-0 left-0 z-50 w-72 lg:w-[280px] bg-[#fcfbf9] p-6 lg:p-8 flex flex-col border-r border-stone-200 transition-transform md:static md:translate-x-0 ${isMobileMenuOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"}`}>
+        <div className="flex justify-between items-center mb-10 px-2">
+          <h2 className="text-2xl font-bold text-stone-800">Target Master</h2>
           <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden text-2xl text-stone-400">✕</button>
         </div>
-        <ul className="flex-1 space-y-1">
-          <li 
-            onClick={() => { setActiveTab('Upcoming'); setIsMobileMenuOpen(false); }} 
-            className={`px-4 py-3 rounded-xl cursor-pointer flex justify-between items-center transition-all ${activeTab === 'Upcoming' ? "bg-stone-100 font-bold" : "text-stone-500 hover:text-stone-800"}`}
-          >
-            <span>Upcoming</span>
-            {upcomingTasks.length > 0 && <span className="bg-stone-200 text-stone-600 px-2 py-0.5 rounded text-xs font-bold">{upcomingTasks.length}</span>}
-          </li>
-          {['Today', 'Target', 'Progress', 'Flashcards', 'Sticky Notes'].map(t => (
-            <li 
-              key={t} 
-              onClick={() => { setActiveTab(t); setIsMobileMenuOpen(false); }} 
-              className={`px-4 py-3 rounded-xl cursor-pointer transition-all ${activeTab === t ? "bg-stone-100 font-bold text-stone-900" : "text-stone-500 hover:text-stone-800"}`}
-            >
-              {t}
-            </li>
-          ))}
-        </ul>
+
+        <div className="flex-1 space-y-8 overflow-y-auto custom-scrollbar pr-2">
+          <div>
+            <h3 className="text-[10px] font-bold text-stone-400 mb-3 tracking-widest uppercase px-4">Tasks</h3>
+            <ul className="space-y-1">
+              <li onClick={() => { setActiveTab('Upcoming'); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-2xl cursor-pointer flex justify-between items-center transition-all ${activeTab === 'Upcoming' ? "bg-stone-100 font-bold text-stone-900 shadow-sm" : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"}`}>
+                <div className="flex items-center gap-3"><span className="w-5 text-center text-lg">»</span><span>Upcoming</span></div>
+                {upcomingTasks.length > 0 && <span className="bg-stone-200/70 text-stone-600 px-2 py-0.5 rounded-lg text-xs font-bold">{upcomingTasks.length}</span>}
+              </li>
+              <li onClick={() => { setActiveTab('Today'); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-2xl cursor-pointer flex justify-between items-center transition-all ${activeTab === 'Today' ? "bg-stone-100 font-bold text-stone-900 shadow-sm" : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"}`}>
+                <div className="flex items-center gap-3"><span className="w-5 text-center text-lg">≡</span><span>Today</span></div>
+                {tasks.filter(t => t.date === new Date().toDateString()).length > 0 && <span className="bg-stone-200/70 text-stone-600 px-2 py-0.5 rounded-lg text-xs font-bold">{tasks.filter(t => t.date === new Date().toDateString()).length}</span>}
+              </li>
+              <li onClick={() => { setActiveTab('Target'); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-2xl cursor-pointer flex justify-between items-center transition-all ${activeTab === 'Target' ? "bg-stone-100 font-bold text-stone-900 shadow-sm" : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"}`}>
+                <div className="flex items-center gap-3"><span className="w-5 text-center text-lg">🎯</span><span>Target</span></div>
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <h3 className="text-[10px] font-bold text-stone-400 mb-3 tracking-widest uppercase px-4">Analytics & Notes</h3>
+            <ul className="space-y-1">
+              <li onClick={() => { setActiveTab('Progress'); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-2xl cursor-pointer flex justify-between items-center transition-all ${activeTab === 'Progress' ? "bg-stone-100 font-bold text-stone-900 shadow-sm" : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"}`}>
+                <div className="flex items-center gap-3"><span className="w-5 text-center text-lg">📊</span><span>Progress</span></div>
+              </li>
+              <li onClick={() => { setActiveTab('Flashcards'); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-2xl cursor-pointer flex justify-between items-center transition-all ${activeTab === 'Flashcards' ? "bg-stone-100 font-bold text-stone-900 shadow-sm" : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"}`}>
+                <div className="flex items-center gap-3"><span className="w-5 text-center text-lg">🃏</span><span>Flashcards</span></div>
+                {decks.length > 0 && <span className="bg-stone-200/70 text-stone-600 px-2 py-0.5 rounded-lg text-xs font-bold">{decks.length}</span>}
+              </li>
+              <li onClick={() => { setActiveTab('Sticky Notes'); setIsMobileMenuOpen(false); }} className={`px-4 py-3 rounded-2xl cursor-pointer flex justify-between items-center transition-all ${activeTab === 'Sticky Notes' ? "bg-stone-100 font-bold text-stone-900 shadow-sm" : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"}`}>
+                <div className="flex items-center gap-3"><span className="w-5 text-center text-lg">📝</span><span>Sticky Notes</span></div>
+              </li>
+            </ul>
+          </div>
+        </div>
+
         {user ? (
           <div className="mt-auto border-t border-stone-200 pt-6">
              <div className="px-4 py-2 text-sm font-bold text-stone-800 truncate mb-1">{user.displayName}</div>
@@ -198,7 +232,7 @@ function App() {
         <header className="flex justify-between items-center mb-10 shrink-0">
           <div className="flex items-center gap-4">
             <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden text-2xl bg-white w-10 h-10 flex items-center justify-center rounded-xl shadow-sm border border-stone-200 text-stone-600">☰</button>
-            <h1 className="text-3xl md:text-5xl font-bold tracking-tight">{activeTab}</h1>
+            <h1 className="text-3xl md:text-5xl font-bold tracking-tight text-stone-800">{activeTab}</h1>
           </div>
           <div className="bg-white px-5 py-2.5 rounded-xl shadow-sm border border-stone-200 font-mono font-bold text-sm hidden md:block tracking-wider">
             {currentTime.toLocaleTimeString('en-IN')}
@@ -399,7 +433,7 @@ function App() {
                     <div className="flex flex-col gap-8 h-full">
                       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 shrink-0">
                          <div className="flex items-center gap-4">
-                           <button onClick={() => setActiveDeckId(null)} className="text-stone-500 font-bold uppercase text-[11px] tracking-widest hover:text-stone-800 transition-all bg-white px-4 py-2.5 rounded-xl shadow-sm border border-stone-200">← Back</button>
+                           <button onClick={() => setActiveDeckId(null)} className="text-stone-500 font-bold uppercase text-[11px] tracking-widest hover:text-stone-800 transition-all bg-white px-4 py-2.5 rounded-xl shadow-sm border border-stone-100">← Back</button>
                            <h3 className="font-bold text-3xl text-stone-800 truncate px-2">{decks.find(d => d.id === activeDeckId)?.name}</h3>
                          </div>
                          <button onClick={shuffleDeck} className="bg-stone-200 px-8 py-3 rounded-xl text-sm font-bold text-stone-700 hover:bg-stone-300 shadow-sm transition-colors w-full md:w-auto">🔀 Shuffle Cards</button>
@@ -467,15 +501,46 @@ function App() {
 
               {/* ---------------- STICKY NOTES TAB ---------------- */}
               {activeTab === "Sticky Notes" && (
-                <div className="h-full bg-[#fce5e8] p-10 md:p-14 rounded-[3.5rem] border border-white shadow-sm flex flex-col">
-                  <h2 className="text-3xl font-bold mb-8 text-rose-900/50">Global Scratchpad</h2>
-                  <textarea 
-                    className="flex-1 bg-transparent border-none outline-none resize-none text-2xl leading-relaxed text-rose-900 custom-scrollbar" 
-                    placeholder="Jot down quick project ideas, formulas, or reminders..." 
-                    value={globalNotes} 
-                    onChange={e => setGlobalNotes(e.target.value)} 
-                    spellCheck="false" 
-                  />
+                <div className="flex flex-col h-full">
+                  <div className="flex justify-between items-center mb-8 shrink-0">
+                    <h2 className="text-3xl md:text-4xl font-bold text-stone-800">Sticky Notes</h2>
+                    <button onClick={addNote} className="bg-black text-white px-6 py-3 rounded-2xl font-bold hover:bg-stone-800 transition-all shadow-md">
+                      + New Note
+                    </button>
+                  </div>
+                  
+                  <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-10">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                      <AnimatePresence>
+                        {notes.map(note => (
+                          <motion.div 
+                            key={note.id} 
+                            initial={{ opacity: 0, scale: 0.8 }} 
+                            animate={{ opacity: 1, scale: 1 }} 
+                            exit={{ opacity: 0, scale: 0.8 }}
+                            className={`${note.color} p-8 rounded-[2.5rem] shadow-sm relative group aspect-square flex flex-col transition-all hover:shadow-md`}
+                          >
+                            <button 
+                              onClick={() => deleteNote(note.id)} 
+                              className="absolute top-4 right-4 bg-white/40 hover:bg-white text-stone-600 rounded-full w-10 h-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all font-bold shadow-sm"
+                            >✕</button>
+                            <textarea 
+                              className="flex-1 bg-transparent border-none outline-none resize-none text-stone-800 font-medium text-xl custom-scrollbar mt-4 leading-relaxed" 
+                              placeholder="Type here..." 
+                              value={note.text} 
+                              onChange={e => updateNote(note.id, e.target.value)} 
+                              spellCheck="false"
+                            />
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                      {notes.length === 0 && (
+                        <div className="col-span-full text-center py-20 text-stone-400 italic font-medium text-lg border-2 border-dashed border-stone-200 rounded-[3rem] bg-white/50">
+                          No notes yet. Click the + button to create one!
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
             </>
