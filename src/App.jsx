@@ -16,6 +16,14 @@ function App() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const scrollRef = useRef(null);
 
+  // ================= FLASHCARD STATE =================
+  const [decks, setDecks] = useState([]);
+  const [activeDeckId, setActiveDeckId] = useState(null);
+  const [flippedCards, setFlippedCards] = useState({});
+  const [newDeckName, setNewDeckName] = useState("");
+  const [newCardQ, setNewCardQ] = useState("");
+  const [newCardA, setNewCardA] = useState("");
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -39,21 +47,29 @@ function App() {
   useEffect(() => {
     if (!user) { 
       setTasks([]); 
+      setDecks([]);
       return; 
     }
     
-    const q = query(collection(db, "tasks"), where("uid", "==", user.uid));
-    const unsubscribeData = onSnapshot(q, (snapshot) => {
+    // Listen for Tasks
+    const qTasks = query(collection(db, "tasks"), where("uid", "==", user.uid));
+    const unsubTasks = onSnapshot(qTasks, (snapshot) => {
       setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    return () => unsubscribeData();
+    // Listen for Flashcard Decks
+    const qDecks = query(collection(db, "decks"), where("uid", "==", user.uid));
+    const unsubDecks = onSnapshot(qDecks, (snapshot) => {
+      setDecks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => { unsubTasks(); unsubDecks(); };
   }, [user]);
 
   const handleLogin = () => signInWithPopup(auth, googleProvider).catch(err => console.error(err));
   const handleLogout = () => signOut(auth);
 
-  // ================= DATABASE ACTIONS =================
+  // ================= TASK ACTIONS =================
   const addTask = async () => {
     if (!input.trim() || !user) return;
     await addDoc(collection(db, "tasks"), {
@@ -74,8 +90,56 @@ function App() {
     await deleteDoc(doc(db, "tasks", id));
   };
 
+  // ================= FLASHCARD ACTIONS =================
+  const addDeck = async () => {
+    if (!newDeckName.trim() || !user) return;
+    await addDoc(collection(db, "decks"), {
+      name: newDeckName,
+      uid: user.uid,
+      cards: [],
+      createdAt: serverTimestamp()
+    });
+    setNewDeckName("");
+  };
 
-  // ================= DATA FILTERING & TIME LOGIC =================
+  const deleteDeck = async (id) => {
+    await deleteDoc(doc(db, "decks", id));
+    if (activeDeckId === id) setActiveDeckId(null);
+  };
+
+  const addCardToDeck = async () => {
+    if (!newCardQ.trim() || !newCardA.trim() || !activeDeckId) return;
+    const deck = decks.find(d => d.id === activeDeckId);
+    const updatedCards = [...(deck.cards || []), { id: Date.now().toString(), q: newCardQ, a: newCardA }];
+    await updateDoc(doc(db, "decks", activeDeckId), { cards: updatedCards });
+    setNewCardQ("");
+    setNewCardA("");
+  };
+
+  const deleteCardFromDeck = async (cardId) => {
+    const deck = decks.find(d => d.id === activeDeckId);
+    const updatedCards = deck.cards.filter(c => c.id !== cardId);
+    await updateDoc(doc(db, "decks", activeDeckId), { cards: updatedCards });
+  };
+
+  const shuffleActiveDeck = async () => {
+    const deck = decks.find(d => d.id === activeDeckId);
+    const shuffled = [...(deck.cards || [])].sort(() => Math.random() - 0.5);
+    await updateDoc(doc(db, "decks", activeDeckId), { cards: shuffled });
+    setFlippedCards({}); // Reset all flips when shuffled
+  };
+
+  const toggleFlip = (cardId) => {
+    setFlippedCards(prev => ({ ...prev, [cardId]: !prev[cardId] }));
+  };
+
+  const closeDeck = () => {
+    setActiveDeckId(null);
+    setFlippedCards({});
+  };
+
+
+  // ================= DATA FILTERING =================
   const todayString = new Date().toDateString();
   const isFutureDate = (dateStr) => new Date(dateStr) > new Date(todayString);
   
@@ -134,11 +198,11 @@ function App() {
   const timeString = currentTime.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute:'2-digit', second: '2-digit' });
   const indianDateString = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', calendar: 'indian', month: 'long', day: 'numeric', year: 'numeric' }).format(currentTime);
 
-  // ================= MAIN APP (FULL SCREEN DESIGN) =================
+  // ================= MAIN APP =================
   return (
     <div className="flex h-screen w-screen bg-[#faf9f6] font-sans text-[#333333] antialiased selection:bg-rose-200 overflow-hidden">
       
-      {/* ================= SIDEBAR (Now flush with the left edge) ================= */}
+      {/* SIDEBAR */}
       <div className="w-72 lg:w-80 bg-[#fcfbf9] p-6 lg:p-8 hidden md:flex flex-col border-r border-stone-200 overflow-y-auto shrink-0">
         <div className="flex items-center justify-between mb-10">
           <h2 className="text-2xl font-bold tracking-tight">Menu</h2>
@@ -158,6 +222,7 @@ function App() {
             <h3 className="text-[11px] font-bold text-stone-400 mb-3 tracking-widest uppercase px-4">Analytics & Notes</h3>
             <ul className="space-y-1 text-base">
               {renderSidebarItem("📊", "Progress", null, activeTab === "Progress")}
+              {renderSidebarItem("🃏", "Flashcards", decks.length, activeTab === "Flashcards")}
               {renderSidebarItem("📝", "Sticky Notes", null, activeTab === "Sticky Notes")}
             </ul>
           </div>
@@ -188,10 +253,9 @@ function App() {
         </div>
       </div>
 
-      {/* ================= MAIN CONTENT AREA (Now spanning the rest of the screen) ================= */}
+      {/* MAIN CONTENT AREA */}
       <div className="flex-1 p-8 lg:p-16 flex flex-col bg-[#faf9f6] overflow-hidden">
         
-        {/* HEADER */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-4 shrink-0">
           <div>
             <h1 className="text-5xl font-bold tracking-tight text-[#222222] mb-2">{activeTab}</h1>
@@ -206,7 +270,6 @@ function App() {
           </div>
         </div>
 
-        {/* LOGGED OUT STATE */}
         {!user ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center border-2 border-dashed border-stone-200 rounded-[3rem] p-12 bg-stone-50/50">
              <div className="text-7xl mb-6">🎯</div>
@@ -214,11 +277,9 @@ function App() {
              <p className="text-stone-500 text-lg max-w-lg mx-auto leading-relaxed">Please sign in using the button in the bottom left menu to view your secure tasks, analytics, and timeline.</p>
           </div>
         ) : (
-          /* LOGGED IN VIEWS */
           <>
             {activeTab === "Target" ? (
                <div className="flex flex-col h-full overflow-hidden">
-               {/* Timeline */}
                <div ref={scrollRef} className="flex overflow-x-auto gap-4 pb-6 mb-6 pt-2 shrink-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                  {calendarDates.map((d, i) => {
                    const isSelected = d.toDateString() === selectedDate.toDateString();
@@ -238,7 +299,6 @@ function App() {
                  })}
                </div>
 
-               {/* Target Grid */}
                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 overflow-y-auto pb-10 pr-4 max-w-5xl">
                  <div className="bg-[#fff4c2] p-8 rounded-3xl shadow-sm border border-white h-fit">
                    <h3 className="text-xl font-bold mb-6 text-stone-800">Add Target</h3>
@@ -352,6 +412,7 @@ function App() {
                     </div>
                  ) : (
                     <div className="space-y-10 mt-4">
+                      {/* Matrix Bars Here */}
                       <div>
                         <div className="flex justify-between text-lg mb-3">
                           <span className="font-bold text-emerald-600">Elite Days (90-100%)</span>
@@ -394,6 +455,111 @@ function App() {
                       </div>
                     </div>
                  )}
+              </div>
+            )
+
+            : activeTab === "Flashcards" ? (
+              <div className="flex flex-col h-[80vh] overflow-hidden w-full max-w-6xl">
+                {!activeDeckId ? (
+                   // ================= GRID OF DECKS =================
+                   <div className="flex-1 overflow-y-auto pr-4">
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+                         <h2 className="text-3xl font-bold text-stone-800">Your Decks</h2>
+                         <div className="flex gap-3 w-full md:w-auto">
+                            <input 
+                              value={newDeckName} onChange={e => setNewDeckName(e.target.value)} 
+                              placeholder="e.g., C++ Algorithms, Robotics Sensors" 
+                              className="flex-1 md:w-72 px-5 py-3 rounded-2xl border border-stone-200 outline-none focus:border-[#222222] transition-colors shadow-sm"
+                              onKeyPress={(e) => e.key === 'Enter' && addDeck()}
+                            />
+                            <button onClick={addDeck} className="bg-[#222222] text-white w-12 h-12 rounded-2xl font-bold text-2xl hover:scale-105 transition-transform flex items-center justify-center shadow-md pb-1 shrink-0">
+                              +
+                            </button>
+                         </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 pb-10">
+                         <AnimatePresence>
+                           {decks.map(deck => (
+                             <motion.div 
+                               key={deck.id} layout initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
+                               onClick={() => setActiveDeckId(deck.id)}
+                               className="bg-[#fff4c2] aspect-square rounded-[2rem] p-6 shadow-sm border border-yellow-200 cursor-pointer hover:shadow-md hover:-translate-y-1 transition-all flex flex-col justify-between group relative"
+                             >
+                               <button onClick={(e) => { e.stopPropagation(); deleteDeck(deck.id); }} className="absolute top-4 right-4 bg-white w-8 h-8 rounded-full text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity font-bold shadow-sm">✕</button>
+                               <h3 className="text-2xl font-bold text-stone-800 leading-tight mt-2">{deck.name}</h3>
+                               <p className="text-base text-stone-600 font-medium bg-white/50 w-fit px-3 py-1 rounded-lg">{deck.cards?.length || 0} Cards</p>
+                             </motion.div>
+                           ))}
+                           {decks.length === 0 && (
+                             <div className="col-span-full text-center p-12 text-stone-400 italic text-lg border-2 border-dashed border-stone-200 rounded-[3rem]">
+                               Create a new deck using the plus button above.
+                             </div>
+                           )}
+                         </AnimatePresence>
+                      </div>
+                   </div>
+                ) : (
+                   // ================= SPREAD VIEW (INSIDE A DECK) =================
+                   <div className="flex-1 flex flex-col overflow-hidden">
+                      <div className="flex justify-between items-center mb-8 border-b border-stone-200 pb-6 shrink-0">
+                         <div>
+                           <button onClick={closeDeck} className="text-stone-400 hover:text-stone-800 font-bold mb-3 flex items-center gap-2 transition-colors text-sm uppercase tracking-widest">
+                             ← Back to Decks
+                           </button>
+                           <h2 className="text-4xl font-bold text-stone-800">{decks.find(d => d.id === activeDeckId)?.name}</h2>
+                         </div>
+                         <button onClick={shuffleActiveDeck} className="bg-stone-200 text-stone-700 px-6 py-3 rounded-2xl font-bold hover:bg-stone-300 transition-colors flex items-center gap-2 shadow-sm">
+                           🔀 Shuffle Cards
+                         </button>
+                      </div>
+
+                      {/* Add Card Form */}
+                      <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-stone-100 mb-8 shrink-0 flex flex-col md:flex-row gap-4 items-center">
+                         <input value={newCardQ} onChange={e => setNewCardQ(e.target.value)} placeholder="Question (e.g., What is the time complexity of QuickSort?)" className="flex-1 w-full bg-stone-50 p-4 rounded-2xl border border-stone-100 outline-none focus:border-stone-300 transition-colors" onKeyPress={(e) => e.key === 'Enter' && addCardToDeck()} />
+                         <input value={newCardA} onChange={e => setNewCardA(e.target.value)} placeholder="Answer (e.g., O(n log n) average case)" className="flex-1 w-full bg-stone-50 p-4 rounded-2xl border border-stone-100 outline-none focus:border-stone-300 transition-colors" onKeyPress={(e) => e.key === 'Enter' && addCardToDeck()} />
+                         <button onClick={addCardToDeck} className="bg-[#222222] text-white w-full md:w-32 py-4 rounded-2xl font-bold hover:bg-stone-800 transition-colors shadow-sm">Add Card</button>
+                      </div>
+
+                      {/* Cards Grid */}
+                      <div className="flex-1 overflow-y-auto pr-4 pb-10">
+                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            <AnimatePresence>
+                              {decks.find(d => d.id === activeDeckId)?.cards?.map(card => {
+                                const isFlipped = flippedCards[card.id];
+                                return (
+                                  <motion.div 
+                                    key={card.id} layout initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }}
+                                    onClick={() => toggleFlip(card.id)}
+                                    className="relative h-56 w-full cursor-pointer group"
+                                    style={{ perspective: "1000px" }}
+                                  >
+                                     <button onClick={(e) => { e.stopPropagation(); deleteCardFromDeck(card.id); }} className="absolute -top-3 -right-3 z-10 bg-white border border-stone-100 w-10 h-10 rounded-full text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity font-bold shadow-md flex items-center justify-center text-lg hover:bg-rose-50">✕</button>
+                                     <motion.div 
+                                       className="w-full h-full relative transition-all duration-500 rounded-[2rem] shadow-sm hover:shadow-md"
+                                       animate={{ rotateY: isFlipped ? 180 : 0 }}
+                                       style={{ transformStyle: "preserve-3d" }}
+                                     >
+                                       {/* Front (Question) */}
+                                       <div className="absolute inset-0 bg-white border border-stone-200 rounded-[2rem] p-6 flex items-center justify-center text-center overflow-y-auto custom-scrollbar" style={{ backfaceVisibility: "hidden" }}>
+                                          <p className="text-xl font-bold text-stone-800">{card.q}</p>
+                                       </div>
+                                       {/* Back (Answer) */}
+                                       <div className="absolute inset-0 bg-[#222222] border border-[#222222] rounded-[2rem] p-6 flex items-center justify-center text-center overflow-y-auto custom-scrollbar" style={{ backfaceVisibility: "hidden", transform: "rotateY(180deg)" }}>
+                                          <p className="text-xl font-bold text-white">{card.a}</p>
+                                       </div>
+                                     </motion.div>
+                                  </motion.div>
+                                )
+                              })}
+                              {(!decks.find(d => d.id === activeDeckId)?.cards || decks.find(d => d.id === activeDeckId)?.cards.length === 0) && (
+                                <div className="col-span-full text-center py-10 text-stone-400 italic text-lg">No cards yet. Add one above!</div>
+                              )}
+                            </AnimatePresence>
+                         </div>
+                      </div>
+                   </div>
+                )}
               </div>
             )
 
