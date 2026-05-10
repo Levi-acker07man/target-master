@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+// Firebase Imports
+import { auth, googleProvider, db } from './firebase';
+import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
+import { collection, addDoc, query, where, onSnapshot, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 
 function App() {
-  // 1. Core State
+  const [user, setUser] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [input, setInput] = useState("");
   const [activeTab, setActiveTab] = useState("Target"); 
   const [globalNotes, setGlobalNotes] = useState(""); 
   
-  // 2. Calendar & Time State
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
   const scrollRef = useRef(null);
@@ -24,27 +27,67 @@ function App() {
     return d;
   });
 
+  // ================= FIREBASE AUTHENTICATION =================
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
+  // ================= FIREBASE REAL-TIME DATABASE =================
+  useEffect(() => {
+    if (!user) { 
+      setTasks([]); 
+      return; 
+    }
+    
+    const q = query(collection(db, "tasks"), where("uid", "==", user.uid));
+    const unsubscribeData = onSnapshot(q, (snapshot) => {
+      setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => unsubscribeData();
+  }, [user]);
+
+  const handleLogin = () => signInWithPopup(auth, googleProvider).catch(err => console.error(err));
+  const handleLogout = () => signOut(auth);
+
+  // ================= DATABASE ACTIONS =================
+  const addTask = async () => {
+    if (!input.trim() || !user) return;
+    await addDoc(collection(db, "tasks"), {
+      text: input,
+      completed: false,
+      date: selectedDate.toDateString(),
+      uid: user.uid,
+      createdAt: serverTimestamp()
+    });
+    setInput("");
+  };
+
+  const toggleTask = async (id, currentStatus) => {
+    await updateDoc(doc(db, "tasks", id), { completed: !currentStatus });
+  };
+
+  const deleteTask = async (id) => {
+    await deleteDoc(doc(db, "tasks", id));
+  };
+
+
   // ================= DATA FILTERING & TIME LOGIC =================
   const todayString = new Date().toDateString();
-  
-  // Helper to strictly identify future dates
   const isFutureDate = (dateStr) => new Date(dateStr) > new Date(todayString);
   
-  // Tasks by View
   const visibleTasks = tasks.filter(t => t.date === selectedDate.toDateString());
   const todayTasks = tasks.filter(t => t.date === todayString);
   const upcomingTasks = tasks.filter(t => isFutureDate(t.date));
 
-  // Today's Efficiency Score
   const todayCompleted = todayTasks.filter(t => t.completed).length;
   const todayTotal = todayTasks.length;
   const todayEfficiency = todayTotal > 0 ? Math.round((todayCompleted / todayTotal) * 100) : 0;
 
-  // --- HISTORICAL CONSISTENCY CALCULATIONS (FIXED) ---
-  // Step 1: Strip out all future tasks so they don't ruin the analytics
   const pastAndPresentTasks = tasks.filter(t => !isFutureDate(t.date));
-
-  // Step 2: Group only the eligible tasks by date
   const tasksByDate = pastAndPresentTasks.reduce((acc, task) => {
     if (!acc[task.date]) acc[task.date] = { total: 0, completed: 0 };
     acc[task.date].total += 1;
@@ -71,17 +114,6 @@ function App() {
   }, {});
   const sortedUpcomingDates = Object.keys(upcomingTasksByDate).sort((a, b) => new Date(a) - new Date(b));
 
-  // ================= ACTIONS =================
-  const addTask = () => {
-    if (!input.trim()) return;
-    const newTask = { id: Date.now(), text: input, completed: false, date: selectedDate.toDateString() };
-    setTasks([...tasks, newTask]);
-    setInput("");
-  };
-
-  const toggleTask = (id) => setTasks(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
-  const deleteTask = (id) => setTasks(tasks.filter(t => t.id !== id));
-
   const renderSidebarItem = (icon, label, count, isActive) => (
     <li 
       onClick={() => setActiveTab(label)}
@@ -102,11 +134,27 @@ function App() {
   const timeString = currentTime.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute:'2-digit', second: '2-digit' });
   const indianDateString = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', calendar: 'indian', month: 'long', day: 'numeric', year: 'numeric' }).format(currentTime);
 
+  // ================= LOGIN SCREEN =================
+  if (!user) {
+    return (
+      <div className="h-screen w-full bg-[#c8d1c9] flex items-center justify-center p-6 font-sans">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-12 rounded-[3rem] shadow-2xl text-center max-w-md w-full">
+          <h1 className="text-4xl font-black text-[#222222] mb-2">Target Master</h1>
+          <p className="text-stone-500 mb-10 font-medium text-sm">Mechanical Engineering Command Center</p>
+          <button onClick={handleLogin} className="w-full bg-[#222222] text-white py-4 rounded-2xl font-bold hover:bg-stone-800 transition-colors flex items-center justify-center gap-3 shadow-lg">
+            Login with Google
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // ================= MAIN APP =================
   return (
     <div className="flex h-screen bg-[#c8d1c9] p-4 lg:p-8 font-sans text-[#333333] antialiased selection:bg-rose-200">
       <div className="flex w-full max-w-7xl mx-auto bg-[#fdfcfb] rounded-[2rem] shadow-2xl overflow-hidden border border-white/50">
 
-        {/* ================= LEFT SIDEBAR ================= */}
+        {/* SIDEBAR */}
         <div className="w-72 bg-[#fcfbf9] p-6 hidden md:flex flex-col border-r border-stone-100 overflow-y-auto">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-xl font-bold tracking-tight">Menu</h2>
@@ -129,17 +177,24 @@ function App() {
                 {renderSidebarItem("📝", "Sticky Notes", null, activeTab === "Sticky Notes")}
               </ul>
             </div>
-            <div>
-              <h3 className="text-[10px] font-bold text-stone-400 mb-2 tracking-widest uppercase px-3">Lists</h3>
-              <ul className="space-y-1 text-sm">
-                {renderSidebarItem(<div className="w-3.5 h-3.5 rounded bg-[#f5cfb3]"></div>, "Personal", null, activeTab === "Personal")}
-                {renderSidebarItem(<div className="w-3.5 h-3.5 rounded bg-[#b3e0dc]"></div>, "Work", null, activeTab === "Work")}
-              </ul>
-            </div>
+          </div>
+          
+          <div className="mt-auto border-t border-stone-100 pt-4">
+             <div className="flex items-center gap-3 px-3 py-2 mb-2">
+               <div className="w-8 h-8 rounded-full bg-stone-200 overflow-hidden flex-shrink-0">
+                  {user.photoURL ? <img src={user.photoURL} alt="profile" /> : <div className="w-full h-full bg-stone-300"></div>}
+               </div>
+               <div className="overflow-hidden">
+                 <p className="text-sm font-bold text-stone-800 truncate">{user.displayName}</p>
+               </div>
+             </div>
+             <button onClick={handleLogout} className="w-full text-left px-3 py-2 text-sm font-bold text-stone-400 hover:text-rose-500 transition-colors">
+               ↪ Sign Out
+             </button>
           </div>
         </div>
 
-        {/* ================= MAIN CONTENT ================= */}
+        {/* MAIN CONTENT AREA */}
         <div className="flex-1 p-8 lg:p-12 flex flex-col bg-[#faf9f6] overflow-hidden">
           
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4 shrink-0">
@@ -156,7 +211,6 @@ function App() {
             </div>
           </div>
 
-          {/* VIEW 1: TARGET */}
           {activeTab === "Target" ? (
              <div className="flex flex-col h-full overflow-hidden">
              <div ref={scrollRef} className="flex overflow-x-auto gap-3 pb-4 mb-6 pt-2 shrink-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
@@ -203,7 +257,7 @@ function App() {
                            {isFuture ? (
                              <button onClick={() => deleteTask(t.id)} className="mt-0.5 text-rose-400 hover:text-rose-600 font-bold px-1 transition-colors">✕</button>
                            ) : (
-                             <input type="checkbox" checked={t.completed} onChange={() => toggleTask(t.id)} className="mt-1 w-4 h-4 rounded border-stone-400 cursor-pointer accent-[#222222]" />
+                             <input type="checkbox" checked={t.completed} onChange={() => toggleTask(t.id, t.completed)} className="mt-1 w-4 h-4 rounded border-stone-400 cursor-pointer accent-[#222222]" />
                            )}
                            <span className={`text-sm leading-relaxed transition-all flex-1 ${t.completed && !isFuture ? "line-through text-stone-400" : "text-stone-700 font-medium"}`}>{t.text}</span>
                            {!isFuture && (
@@ -220,7 +274,6 @@ function App() {
            </div>
           ) 
 
-          /* VIEW 2: TODAY TAB */
           : activeTab === "Today" ? (
             <div className="max-w-2xl w-full bg-[#dcf0f5] p-8 rounded-3xl shadow-sm border border-white flex flex-col h-[75vh]">
                  <div className="mb-8 bg-white/40 p-5 rounded-2xl border border-white">
@@ -246,7 +299,7 @@ function App() {
                       ) : (
                         todayTasks.map(t => (
                           <motion.div key={t.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex items-start gap-4 bg-white/60 p-4 rounded-xl border border-white shadow-sm group">
-                            <input type="checkbox" checked={t.completed} onChange={() => toggleTask(t.id)} className="mt-1 w-5 h-5 rounded border-stone-400 cursor-pointer accent-[#222222]" />
+                            <input type="checkbox" checked={t.completed} onChange={() => toggleTask(t.id, t.completed)} className="mt-1 w-5 h-5 rounded border-stone-400 cursor-pointer accent-[#222222]" />
                             <span className={`text-lg transition-all flex-1 ${t.completed ? "line-through text-stone-400" : "text-stone-800 font-medium"}`}>{t.text}</span>
                             <button onClick={() => deleteTask(t.id)} className="text-stone-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity text-xl">✕</button>
                           </motion.div>
@@ -257,7 +310,6 @@ function App() {
             </div>
           )
 
-          /* VIEW 3: UPCOMING TAB */
           : activeTab === "Upcoming" ? (
             <div className="max-w-3xl w-full overflow-y-auto pr-4 pb-10 space-y-8">
               {sortedUpcomingDates.length === 0 ? (
@@ -282,7 +334,6 @@ function App() {
             </div>
           )
 
-          /* VIEW 4: PROGRESS TAB */
           : activeTab === "Progress" ? (
             <div className="max-w-2xl w-full bg-white p-10 rounded-3xl shadow-sm border border-stone-100 flex flex-col h-[75vh] overflow-y-auto">
                <h2 className="text-3xl font-bold mb-2 text-stone-800">Consistency Matrix</h2>
@@ -290,7 +341,7 @@ function App() {
 
                {totalDaysWithTasks === 0 ? (
                   <div className="flex-1 flex items-center justify-center text-stone-400 italic bg-stone-50 rounded-2xl border-2 border-dashed border-stone-200 text-center px-4">
-                    Data for the Consistency Matrix will generate once you complete tasks today or log historical tasks. Future tasks are ignored until their day arrives.
+                    Data will generate once you complete tasks today or log historical tasks.
                   </div>
                ) : (
                   <div className="space-y-8 mt-4">
@@ -339,7 +390,6 @@ function App() {
             </div>
           )
 
-          /* VIEW 5: STICKY NOTES */
           : activeTab === "Sticky Notes" ? (
             <div className="max-w-4xl w-full bg-[#fce5e8] p-10 rounded-3xl shadow-sm border border-white flex flex-col h-[75vh]">
               <h2 className="text-2xl font-bold mb-6 text-stone-800">Global Scratchpad</h2>
@@ -353,10 +403,9 @@ function App() {
             </div>
           )
           
-          /* FALLBACK */
           : (
             <div className="flex flex-1 items-center justify-center text-stone-400 border-2 border-dashed border-stone-200 rounded-2xl">
-              <p>The {activeTab} view is currently under construction...</p>
+              <p>Under construction...</p>
             </div>
           )}
         </div>

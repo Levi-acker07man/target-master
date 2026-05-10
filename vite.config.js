@@ -8,4 +8,5 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  base: '/target-master/', // <-- ADD THIS LINE!
 })
